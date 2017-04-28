@@ -1,0 +1,94 @@
+---
+# Installs DreamFactory with Nginx
+
+- name: Install Dependencies
+  hosts: vagrant
+  remote_user: vagrant
+  become: yes
+  become_method: sudo
+  tasks:
+    - name: Update Apt Cache
+      apt:
+        update_cache: yes
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: latest
+    - name: Install PHP
+      apt:
+        name: php,php-fpm,php-common,php-mbstring,php-mcrypt,php-zip,php-curl,php-sqlite3,php-mysql,php-dev,php-pear
+        state: latest
+    - name: Install Additional Tools (git, vim, curl, composer)
+      apt:
+        name: git,vim,curl,zip,unzip,composer
+        state: latest
+    - name: Install build tools for mongodb.os
+      apt:
+        name: build-essential,libsslcommon2-dev,libssl-dev,libcurl4-openssl-dev,pkg-config
+        state: latest
+    - name: Install mongodb.so
+      pear:
+        name: pecl/mongodb
+        state: latest
+    - name: Create mongodb.ini
+      raw: echo "extension=mongodb.so" > /etc/php/7.0/mods-available/mongodb.ini
+    - name: Enable php mongodb
+      raw: phpenmod mongodb
+    - name: Configure PHP-FPM
+      ini_file:
+        path: /etc/php/7.0/fpm/php.ini
+        section: PHP
+        option: cgi.fix_pathinfo
+        value: 0
+    - name: Restart PHP-FPM
+      service:
+          name: php7.0-fpm
+          state: restarted
+    - name: Create install directory
+      file:
+          path: /opt/dreamfactory
+          state: directory
+          owner: vagrant
+          group: vagrant
+    - name: Git DreamFactory
+      git:
+        repo: https://github.com/dreamfactorysoftware/dreamfactory.git
+        dest: /opt/dreamfactory
+        version: master
+      become: no
+    - name: Add git token to composer
+      composer:
+        command: config
+        arguments: -g github-oauth.github.com insertGithubTokenHere
+        working_dir: /opt/dreamfactory
+      become: no
+    - name: Install DF Dependencies via Composer
+      composer:
+          command: install
+          no_dev: True
+          working_dir: /opt/dreamfactory
+      become: no
+    - name: DF Setup
+      raw: cd /opt/dreamfactory && php artisan df:setup --db_connection=sqlite
+      become: no
+    - name: Reset Storage Permissions
+      file:
+        path: /opt/dreamfactory/storage/
+        owner: www-data
+        group: vagrant
+        mode: 0775
+        recurse: yes
+    - name: Reset Bootstrap Cache Permissions
+      file:
+        path: /opt/dreamfactory/bootstrap/cache/
+        owner: www-data
+        group: vagrant
+        mode: 0775
+    - name: Nginx Configure
+      copy:
+        src: ./nginx.conf
+        dest: /etc/nginx/sites-available/default
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
